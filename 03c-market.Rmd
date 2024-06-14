@@ -1,0 +1,623 @@
+# Market
+
+## Fecal Samples
+
+```{r mkt-setup, include=FALSE} 
+today <- Sys.Date()
+pacman::p_load(phyloseq, vegan, ggplot2, ggpubr, microViz, corncob, ggraph, DT, readr, dplyr, tidyverse, gridExtra, microbiome, metagMisc, scales, GUniFrac, kableExtra, optimx, edgeR, xaringan, xaringanExtra, magick, MicEco)
+
+physeq <- readRDS("Data/phyloseq_obj_2024-04-07.rds")
+pathseq <- readRDS("Data/pathseq_obj_2024-02-27.rds")
+ARGseq <- readRDS("Data/ARGseq_obj_2024-04-22.rds")
+clinseq <- readRDS("Data/clinseq_obj_2024-04-18.rds")
+phy_meta <- read.csv("Data/phy_meta_2024-01-30.csv")
+pathogens <- read.csv("Data/pathogens_2024-01-30.csv")
+ARG <- read.csv("Data/ARG_2024-01-30.csv")
+
+## Pathogens 
+phyfec <- subset_samples(pathseq, Feces==1)
+path_mkt <- subset_samples(phyfec, site=="Market")
+
+
+bac_fec <- subset_samples(physeq, Feces == 1)
+bac_fec_mkt <- subset_samples(bac_fec, Group=="Market")
+
+
+# Custom colors for plotting
+custom_colors <- c(
+  "Commercial/Farm/Fecal, N=4" = "darkolivegreen1",
+  "Commercial/Market/Fecal, N=8" = "darkolivegreen3",
+  "Commercial/Market/Carcass, N=42" = "darkolivegreen4",
+  "Indigenous/Household/Fecal, N=7" = "lightblue1",
+  "Indigenous/Market/Fecal, N=7" = "lightblue3",
+  "Indigenous/Market/Carcass, N=7" = "lightblue4",
+  "Market Rinse Water, N=26" = "goldenrod"
+)
+
+
+
+physeq@sam_data$loc.type.n <- gsub(", ", "\n", physeq@sam_data$loc.type.n)
+physeq@sam_data$loc.type.n <- gsub("/Market/Fecal", " ", physeq@sam_data$loc.type.n)
+
+pathseq@sam_data$loc.type.n <- gsub(", ", "\n", pathseq@sam_data$loc.type.n)
+pathseq@sam_data$loc.type.n <- gsub("/Market/Fecal", " ", pathseq@sam_data$loc.type.n)
+
+ARGseq@sam_data$loc.type.n <- gsub(", ", "\n", ARGseq@sam_data$loc.type.n)
+ARGseq@sam_data$loc.type.n <- gsub("/Market/Fecal", " ", ARGseq@sam_data$loc.type.n)
+
+clinseq@sam_data$loc.type.n <- gsub(", ", "\n", clinseq@sam_data$loc.type.n)
+clinseq@sam_data$loc.type.n <- gsub("/Market/Fecal", " ", clinseq@sam_data$loc.type.n)
+
+names(custom_colors) <- gsub(", ", "\n", names(custom_colors))
+names(custom_colors) <- gsub("/Market/Fecal", " ", names(custom_colors))
+
+```
+
+
+```{r venn-mkt, include=FALSE}
+
+### Venn Diagrams
+### Bacteria 
+bacmkt <- subset_samples(physeq, Group=="Market")
+
+### Venn Diagram
+bacvenn <- ps_venn(
+  bacmkt,
+  group = "breed",
+  fraction = 0,
+  weight = FALSE,
+  relative = TRUE,
+  plot = TRUE, 
+  labels=list(cex=1),
+  #main = "Bacteria",
+  
+  quantities = list(cex=1, type = c('counts',"percent")),
+  
+  fill=c("Commercial" = "darkolivegreen3", 
+         "Indigenous" = "lightblue3")
+  
+)
+
+
+## Pathogen venn diagram 
+pathmkt <- subset_samples(physeq, Group=="Market")
+
+### Venn Diagram
+pathvenn <- ps_venn(
+  pathmkt,
+  group = "breed",
+  fraction = 0,
+  weight = FALSE,
+  relative = TRUE,
+  plot = TRUE, 
+  labels=list(cex=1),
+  #main = "Pathogens",
+  
+  quantities = list(cex=1, type = c('counts',"percent")),
+  
+  fill=c("Commercial" = "darkolivegreen3", 
+         "Indigenous" = "lightblue3")
+  
+)
+
+
+argmkt <- subset_samples(ARGseq, Group=="Market") 
+###ARGs 
+argvenn <- ps_venn(
+  argmkt,
+  group = "breed",
+  fraction = 0,
+  weight = FALSE,
+  relative = TRUE,
+  plot = TRUE, 
+  labels=list(cex=1),
+ # main = "Market Site ARGs",
+  
+  quantities = list(cex=1, type = c('counts',"percent")),
+  
+  fill=c("Commercial" = "darkolivegreen3", 
+         "Indigenous" = "lightblue3")
+  
+)
+
+
+## HR-ARG venn 
+
+clinmkt <- subset_samples(clinseq, Group=="Market")
+### Venn Diagram
+clinvenn <- ps_venn(
+  clinmkt,
+  group = "breed",
+  fraction = 0,
+  weight = FALSE,
+  relative = TRUE,
+  plot = TRUE, 
+  labels=list(cex=1),
+  #main = "Market Site HR-ARGs",
+  
+  quantities = list(cex=1, type = c('counts',"percent")),
+  
+  fill=c("Commercial" = "darkolivegreen3", 
+         "Indigenous" = "lightblue3")
+  
+)
+
+
+```
+
+```{r venn-mkt-viz, echo=FALSE, warning=FALSE}
+ggarrange( bacvenn, pathvenn, argvenn, clinvenn, ncol=2, nrow=2,  labels = c("Bacteria", "Pathogens", "ARGs", "High-Risk ARGs"), 
+                    font.label = list(size = 14)) 
+
+```
+
+
+```{r stack-mkt, include=FALSE}
+### Most Abundant 
+phy_df <- phyloseq_to_df(bac_fec_mkt, addtax=T)
+
+df_long <- phy_df%>% 
+  gather(key="ID", value="count", -c("OTU", "Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"))
+# Genus & species name
+df_long$g.species <- paste0(substr(df_long$Genus, 1, 1), ".", " ", df_long$Species)
+
+df_stack <- merge(df_long, phy_meta, by="ID")
+phyla = aggregate(df_stack$count,
+                  by = list(df_stack$Phylum),
+                  FUN = sum)
+phyla$num <- phyla$x
+phyla$Phylum <- phyla$Group.1
+phyla <- phyla[with(phyla,order(-num)),]
+
+phyla <-  na.omit(phyla[-7, ][1:5, ])
+
+phylist <- (phyla$Phylum)
+
+df_stack$phystack <- NA
+
+phydat1 <- df_stack[df_stack$Phylum %in% phylist,]
+phydat1$phystack <- phydat1$Phylum
+
+phydat2 <- df_stack[!df_stack$Phylum %in% phylist,]
+phydat2$phystack <- "Other"
+
+phydat <- rbind(phydat1, phydat2)
+# Reorder the 'Category' variable based on the 'Value' variable
+phydat$phystack <- factor(phydat$phystack, levels=c( 'Other', 'Fusobacteria',  'Bacteroidetes'  ,    'Firmicutes' , "Actinobacteria",  'Proteobacteria'  ))
+
+# Order the levels consistently across all data frames
+#phydat$Group <- factor(phydat$Group, levels = desired_order)
+# Define the desired order of x-axis labels
+unique_categories <- unique(phy_df$loc.type.n)
+
+#stacked bar chart
+bac_stack <- phydat %>% 
+  ggplot() + 
+  geom_bar(aes(x=labels, y=count, fill=phystack, color=phystack), stat="identity", position="fill") + 
+ # ggtitle("Proportional Abundance of Bacterial Phyla") + 
+  ylab("Proportional Abundance") + theme_classic() +  theme(#text = element_text(size = 20),
+    legend.title=element_blank(), text=element_text(size=14)) + 
+  xlab("") + scale_y_continuous(labels = scales::percent_format(scale = 100),  # Format y-axis as percentages
+                                limits = c(0, 1)) 
+
+## Path Stack 
+pathseq_fec <- subset_samples(pathseq, Feces==1)
+pathseq_fec_mkt <- subset_samples(pathseq_fec, Group=="Market")
+phy_df <- phyloseq_to_df(pathseq_fec_mkt, addtax=T)
+
+df_long <- phy_df%>% 
+  gather(key="ID", value="count", -c("OTU", "Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"))
+# Genus & species name
+df_long$g.species <- paste0(substr(df_long$Genus, 1, 1), ".", " ", df_long$Species)
+
+df_stack <- merge(df_long, phy_meta, by="ID")
+phyla = aggregate(df_stack$count,
+                  by = list(df_stack$g.species),
+                  FUN = sum)
+phyla$num <- phyla$x
+phyla$g.species <- phyla$Group.1
+phyla <- phyla[with(phyla,order(-num)),]
+
+phyla <-  na.omit(phyla[1:5, ])
+
+phylist <- (phyla$g.species)
+
+df_stack$phystack <- NA
+
+phydat1 <- df_stack[df_stack$g.species %in% phylist,]
+phydat1$phystack <- phydat1$g.species
+
+phydat2 <- df_stack[!df_stack$g.species %in% phylist,]
+phydat2$phystack <- "Other"
+
+phydat <- rbind(phydat1, phydat2)
+# Reorder the 'Category' variable based on the 'Value' variable
+phydat$phystack <- factor(phydat$phystack, levels=c( "Other", "E. coli"   ,  "S. flexneri" ,"C. coli" ,    "S. sonnei",   "S. enterica"    ))
+
+# Define the desired order of x-axis labels
+unique_categories <- unique(phy_df$loc.type.n)
+
+#stacked bar chart
+
+phydat$phystack
+path_stack <- phydat %>% 
+  ggplot() + 
+  geom_bar(aes(x=labels, y=count, fill=phystack, color=phystack), stat="identity", position="fill") + 
+ # ggtitle("Proportional Abundance of Pathogens") + 
+  ylab("Proportional Abundance") + theme_classic() +  theme(#text = element_text(size = 20),
+    legend.title=element_blank(), text=element_text(size=14)) + 
+  xlab("") + scale_y_continuous(labels = scales::percent_format(scale = 100)) 
+
+### ARGs
+
+## Most abundant ARGs
+mkt_args <- subset(ARG, ARG$Group=="Market")
+top.args = aggregate(mkt_args$TotalIDs,
+                     by = list(mkt_args$name2),
+                     FUN = sum)
+top.args$num <- top.args$x
+top.args$name2 <- top.args$Group.1
+top.args <- top.args[with(top.args,order(-num)),]
+top.args <-  na.omit(top.args[1:5, ])
+
+arglist <- (top.args$name2)
+ARG$argstack <- NA 
+argdat1 <- mkt_args[mkt_args$name2 %in% arglist,]
+
+argdat1 <- mkt_args[mkt_args$name2 %in% arglist,]
+argdat1$argstack <- argdat1$name2
+
+argdat2 <- mkt_args[!mkt_args$name2 %in% arglist,]
+argdat2$argstack <- "Other"
+
+argdat <- rbind(argdat1, argdat2)
+
+# Reorder the 'Category' variable based on the 'Value' variable
+
+argdat$argstack <- factor(argdat$argstack, levels=c( "Other","erm(B)" , "tet(Q)" , "erm(F)","tet(W)", "ant(6)-Ia"  ))
+
+# Order the levels consistently across all data frames
+
+arg_stack <-  argdat %>% ggplot(aes(x=labels,y=TotalIDs)) + 
+  geom_bar(aes(fill=argstack, color=argstack), stat="identity", position="fill") + 
+ # ggtitle("Proportional Abundance of AMR Genes") + 
+  ylab("Proportional Abundance") +xlab("")+ theme_classic() +  theme( legend.title=element_blank(), text=element_text(size=14))
+
+### hr-ARGs
+
+## Most abundant ARGs
+HR_ARG <- subset(mkt_args, mkt_args$clinical==1)
+top.args = aggregate(HR_ARG$TotalIDs,
+                     by = list(HR_ARG$name2),
+                     FUN = sum)
+top.args$num <- top.args$x
+top.args$name2 <- top.args$Group.1
+top.args <- top.args[with(top.args,order(-num)),]
+top.args <-  na.omit(top.args[1:5, ])
+
+arglist <- (top.args$name2)
+
+ARG$argstack <- NA 
+argdat1 <- HR_ARG[HR_ARG$name2 %in% arglist,]
+
+argdat1 <- HR_ARG[HR_ARG$name2 %in% arglist,]
+argdat1$argstack <- argdat1$name2
+
+argdat2 <- HR_ARG[!HR_ARG$name2 %in% arglist,]
+argdat2$argstack <- "Other"
+
+argdat <- rbind(argdat1, argdat2)
+
+# Reorder the 'Category' variable based on the 'Value' variable
+
+argdat$argstack <- factor(argdat$argstack, levels=c( "Other", "erm(B)"  ,  "tet(Q)"  ,  "erm(F)"   , "tet(W)" ,   "ant(6)-Ia"   ))
+
+# Order the levels consistently across all data frames
+
+hr_arg_stack <-  argdat %>% ggplot(aes(x=labels,y=TotalIDs)) + 
+  geom_bar(aes(fill=argstack, color=argstack), stat="identity", position="fill") + 
+  #ggtitle("Proportional Abundance of AMR Genes") + 
+  ylab("Proportional Abundance") +xlab("")+ theme_classic() +  theme( legend.title=element_blank(), text=element_text(size=14))
+
+```
+
+
+```{r stack-mkt-viz, echo=FALSE, warning=FALSE}
+ggarrange( bac_stack, path_stack, arg_stack, hr_arg_stack, ncol=2, nrow=2,  labels = c("Bacteria", "Pathogens", "ARGs", "High-Risk ARGs"), 
+                    font.label = list(size = 14)) 
+
+```
+
+
+```{r nmds-mkt, include=FALSE}
+## Bacteria NMDS 
+physeq_fixed <- physeq %>%
+  tax_fix(
+    min_length = 2,
+    unknowns = c("sp. ANNP30", "Ponticoccus"),
+    sep = " ", anon_unique = TRUE,
+    suffix_rank = "classified"
+  )
+
+bac_fec <- subset_samples(physeq_fixed, Feces == 1)
+bac_fec_mkt <- subset_samples(bac_fec, Group=="Market")
+
+# Transform phyloseq object
+
+physeq.rel <- microbiome::transform(bac_fec_mkt, "compositional")
+otu <- abundances(physeq.rel)
+meta <- meta(physeq.rel)
+# Significance Test (PERMANOVA)
+formula_str <- paste("t(otu) ~", "breed")  # Create the formula string
+permanova <- adonis2(as.formula(formula_str), data = meta, permutations = 999999, method = "bray")
+p_value <- sprintf("%.4f", permanova$`Pr(>F)`[1])  # Format p-value to four decimal places
+
+### Side Density Plot 
+bac_nmds <- bac_fec_mkt %>%
+  tax_transform("identity", rank = "Phylum") %>%
+  dist_calc(dist = "bray") %>%
+  ord_calc("NMDS") %>%
+  ord_plot(color = "loc.type.n", shape = "loc.type.n", size = 3) +
+  stat_ellipse(aes(group = loc.type.n)) + ## add ellipses
+  scale_color_manual(values=custom_colors)+
+  theme_bw() + ggtitle(paste0("Bacteria Composition \n P-Value=", p_value)) + 
+  ggside::geom_xsidedensity(aes(fill = loc.type.n), alpha = 0.5, show.legend = FALSE) +
+  ggside::geom_ysidedensity(aes(fill = loc.type.n), alpha = 0.5, show.legend = FALSE) +
+  ggside::theme_ggside_void() + scale_fill_manual(values=custom_colors) + 
+  theme(
+    text = element_text(size = 12),           # General text size
+    legend.title = element_blank(),           # No legend title
+    plot.title = element_text(size = 12),     # Plot title size
+    axis.title = element_text(size = 12),     # Axis titles size
+    axis.text = element_text(size = 12),      # Axis text size
+    legend.text = element_text(size = 12)     # Legend text size
+  )
+
+## Pathogen NMDS 
+# Transform phyloseq object
+physeq.rel <- microbiome::transform(pathseq_fec_mkt, "compositional")
+otu <- abundances(physeq.rel)
+meta <- meta(physeq.rel)
+# Significance Test (PERMANOVA)
+formula_str <- paste("t(otu) ~", "breed")  # Create the formula string
+permanova <- adonis2(as.formula(formula_str), data = meta, permutations = 999999, method = "bray")
+p_value <- sprintf("%.3f", permanova$`Pr(>F)`[1])  # Format p-value to four decimal places
+
+### Side Density Plot 
+pathseq_fec <- subset_samples(pathseq, Feces == 1)
+pathseq_fec_mkt <- subset_samples(pathseq_fec, Group=="Market" )
+path_nmds <- pathseq_fec_mkt %>%
+  tax_transform("identity", rank = "Genus") %>%
+  dist_calc(dist = "bray") %>%
+  ord_calc("NMDS") %>%
+  ord_plot(color = "loc.type.n", shape = "loc.type.n", size = 3) +
+  stat_ellipse(aes(group = loc.type.n)) + ## add ellipses
+  scale_color_manual(values=custom_colors)+
+  theme_bw() + ggtitle(paste0("Pathogen Composition \n P-Value=", p_value)) + 
+  ggside::geom_xsidedensity(aes(fill = loc.type.n), alpha = 0.5, show.legend = FALSE) +
+  ggside::geom_ysidedensity(aes(fill = loc.type.n), alpha = 0.5, show.legend = FALSE) +
+  ggside::theme_ggside_void() + scale_fill_manual(values=custom_colors) +
+  theme(
+    text = element_text(size = 12),           # General text size
+    legend.title = element_blank(),           # No legend title
+    plot.title = element_text(size = 12),     # Plot title size
+    axis.title = element_text(size = 12),     # Axis titles size
+    axis.text = element_text(size = 12),      # Axis text size
+    legend.text = element_text(size = 12)     # Legend text size
+  )
+
+## ARG NMDS 
+
+ARGseq_fec <- subset_samples(ARGseq, Feces == 1)
+ARGseq_fec_mkt <- subset_samples(ARGseq_fec, Group=="Market" )
+# Transform phyloseq object
+physeq.rel <- microbiome::transform(ARGseq_fec_mkt, "compositional")
+otu <- abundances(physeq.rel)
+meta <- meta(physeq.rel)
+
+# Significance Test (PERMANOVA)
+formula_str <- paste("t(otu) ~", "breed")  # Create the formula string
+permanova <- adonis2(as.formula(formula_str), data = meta, permutations = 999999, method = "bray")
+p_value <- sprintf("%.4f", permanova$`Pr(>F)`[1])  # Format p-value to four decimal places
+
+arg_nmds <- ARGseq_fec_mkt %>%
+  tax_transform("identity", rank = "Genus") %>%
+  dist_calc(dist = "bray") %>%
+  ord_calc("NMDS") %>%
+  ord_plot(color = "loc.type.n", shape = "breed", size =3) +
+  stat_ellipse(aes(group = loc.type.n)) + ## add ellipses
+  scale_color_manual(values=custom_colors)+
+  theme_bw() + ggtitle(paste0("ARG Composition \n P-value =", p_value)) + 
+  ggside::geom_xsidedensity(aes(fill = loc.type.n), alpha = 0.5, show.legend = FALSE) +
+  ggside::geom_ysidedensity(aes(fill = loc.type.n), alpha = 0.5, show.legend = FALSE) +
+  ggside::theme_ggside_void() + scale_fill_manual(values=custom_colors) + 
+  theme(
+    text = element_text(size = 12),           # General text size
+    legend.title = element_blank(),           # No legend title
+    plot.title = element_text(size = 12),     # Plot title size
+    axis.title = element_text(size = 12),     # Axis titles size
+    axis.text = element_text(size = 12),      # Axis text size
+    legend.text = element_text(size = 12)     # Legend text size
+  )
+
+## C-args
+clinseq_fec <- subset_samples(clinseq, Feces == 1)
+clinseq_fec_mkt <- subset_samples(clinseq_fec, Group=="Market" )# Transform phyloseq object
+physeq.rel <- microbiome::transform(clinseq_fec_mkt, "compositional")
+otu <- abundances(physeq.rel)
+meta <- meta(physeq.rel)
+
+# Significance Test (PERMANOVA)
+formula_str <- paste("t(otu) ~", "breed")  # Create the formula string
+permanova <- adonis2(as.formula(formula_str), data = meta, permutations = 999999, method = "bray")
+p_value <- sprintf("%.3f", permanova$`Pr(>F)`[1])  # Format p-value to four decimal places
+
+clin_nmds <- clinseq_fec_mkt %>%
+  tax_transform("identity", rank = "Genus") %>%
+  dist_calc(dist = "bray") %>%
+  ord_calc("NMDS") %>%
+  ord_plot(color = "loc.type.n", shape = "breed", size = 3) +
+  stat_ellipse(aes(group = loc.type.n)) + ## add ellipses
+  scale_color_manual(values=custom_colors)+
+  theme_bw() + ggtitle(paste0("HR-ARG Composition \n P-value =", p_value)) + 
+  ggside::geom_xsidedensity(aes(fill = loc.type.n), alpha = 0.5, show.legend = FALSE) +
+  ggside::geom_ysidedensity(aes(fill = loc.type.n), alpha = 0.5, show.legend = FALSE) +
+  ggside::theme_ggside_void() + scale_fill_manual(values=custom_colors) + theme(text=element_text(size=12), legend.title=element_blank())
+
+
+```
+
+
+```{r nmds-mkt-viz, echo=FALSE, warning=FALSE}
+ggarrange( bac_nmds, path_nmds, arg_nmds, clin_nmds, ncol=2, nrow=2,  labels = c("Bacteria", "Pathogens", "ARGs", "High-Risk ARGs"), 
+                    font.label = list(size = 10)) 
+
+```
+
+
+
+
+```{r daa-mkt, include=FALSE}
+
+
+source("Data/daa_function.R")
+
+### DAA BACTERIA 
+bacmkt <- subset_samples(physeq, Group=="Market") %>% tax_glom("Phylum")
+
+#DIFFERENTIAL ABUNDANCE BETWEEN BREEDS (AMONG PRODUCTION SITE)
+daa_mkt <- differentialTest(formula = ~ Indigenous,
+                            phi.formula = ~ Indigenous,
+                            formula_null = ~ 1,
+                            phi.formula_null = ~ Indigenous,
+                            test = "Wald", boot = FALSE,
+                            full_output=FALSE,
+                            data = bacmkt,
+                            fdr_cutoff = 0.05)
+
+bac_daa <- plot.differentialTest(daa_mkt, level= "Phylum")
+
+### DAA PATH
+
+mkt_prod <- subset_samples(pathseq, Group=="Market") %>% tax_glom("Genus")
+
+#DAA ARGS
+daa_mkt <- differentialTest(formula = ~ Indigenous,
+                             phi.formula = ~ Indigenous,
+                             formula_null = ~ 1,
+                             phi.formula_null = ~ Indigenous,
+                             test = "Wald", boot = FALSE,
+                             full_output=FALSE,
+                             data = mkt_prod,
+                             fdr_cutoff = 0.05)
+
+path_daa <- plot.differentialTest(daa_mkt, level= "Genus")
+
+
+### DAA ARGS
+
+argmkt <- subset_samples(ARGseq, Group=="Market")  %>% tax_glom("Genus")
+
+daa_argseq <- differentialTest(formula = ~ breed,
+                               phi.formula = ~ breed,
+                               formula_null = ~ 1,
+                               phi.formula_null = ~ breed,
+                               test = "Wald", boot = FALSE,
+                               full_output=FALSE,
+                               data = argmkt,
+                               fdr_cutoff = 0.05)
+
+arg_daa <- plot.differentialTest(daa_argseq, level= "Genus")
+
+### DAA HR-ARGS 
+
+clinmkt <- subset_samples(clinseq, Group=="Market")  %>% tax_glom("Genus")
+
+daa_clinseq <- differentialTest(formula = ~ breed,
+                               phi.formula = ~ breed,
+                               formula_null = ~ 1,
+                               phi.formula_null = ~ breed,
+                               test = "Wald", boot = FALSE,
+                               full_output=FALSE,
+                               data = clinmkt,
+                               fdr_cutoff = 0.05)
+
+clin_daa <- plot.differentialTest(daa_clinseq, level= "Genus")
+```
+
+
+```{r daa-mkt-viz, echo=FALSE, warning=FALSE}
+ggarrange( bac_daa, path_daa, arg_daa, clin_daa, ncol=2, nrow=2,  labels = c("Bacteria", "Pathogens", "ARGs", "High-Risk ARGs"), 
+                    font.label = list(size = 10)) 
+
+```
+
+
+```{r heat-mkt, include=FALSE}
+
+### Pathogen HEatmaps
+
+pathseq_g <- tax_glom(pathseq, "Genus")
+
+taxaorder <- unique(taxa_names(pathseq_g))
+
+pathseq_mkt <- subset_samples(pathseq_g, Group=="Market")
+pathseq_mkt_com <- subset_samples(pathseq_mkt, breed=="Commercial")
+pathseq_mkt_ind <- subset_samples(pathseq_mkt, breed=="Indigenous")
+
+hm_path_mkt_com <-plot_heatmap(pathseq_mkt_com, taxa.label= "Genus", taxa.order=taxaorder, title = "Commercial", trans = log_trans(10), low="#e3fa9e", high="#59730d", na.value="white")  + theme_classic() + theme(text=element_text(size=14)) #+  scale_fill_gradient(limits=range(67,11661349),  low="#deebe4", high="#2c3831", na.value="white")
+
+hm_path_mkt_ind <-plot_heatmap(pathseq_mkt_ind, taxa.label= "Genus", taxa.order=taxaorder,  title = "Indigenous",   trans = log_trans(10), low="#d6f5f4", high="#074e54", na.value="white") + theme_classic() + theme(text=element_text(size=14))#+  scale_fill_gradient(limits=range(67,11661349),  low="#deebe4", high="#2c3831", na.value="white")
+
+### HR-ARG heatmap 
+
+clinseq_g <- tax_glom(clinmkt, "Genus")
+
+taxaorder <- unique(taxa_names(clinseq_g))
+
+clinseq_mkt <- subset_samples(clinseq_g, Group=="Market")
+clinseq_mkt_com <- subset_samples(clinseq_mkt, breed=="Commercial")
+clinseq_mkt_ind <- subset_samples(clinseq_mkt, breed=="Indigenous")
+
+clinseq_com <- subset_samples(clinseq_g, breed=="Commercial")
+clinseq_com_fec <- subset_samples(clinseq_com, Feces==1)
+
+hm_clin_mkt_com <-plot_heatmap(clinseq_mkt_com, taxa.label= "Genus", taxa.order=taxaorder, title = "Commercial", trans = log_trans(10), low="#e3fa9e", high="#59730d", na.value="white")  + 
+  theme_classic() +   theme(
+    text = element_text(size = 12), 
+    axis.title.x = element_blank() ,  
+    axis.title.y = element_blank(),
+    axis.text = element_text(size = 12),   # Axis text size
+    axis.title = element_text(size = 12),  # Axis title size
+    plot.title = element_text(size = 12),  # Plot title size
+    legend.text = element_text(size = 12), # Legend text size
+    legend.title = element_text(size = 12) # Legend title size
+  ) + guides(fill=guide_legend(
+    keywidth=0.1,
+    keyheight=0.1,
+    default.unit="inch")
+  ) + scale_x_discrete(guide = guide_axis(angle = 40)) 
+
+
+hm_clin_mkt_ind <-plot_heatmap(clinseq_mkt_ind, taxa.label= "Genus", taxa.order=taxaorder,  title = "Indigenous",   trans = log_trans(10), low="#d6f5f4", high="#074e54", na.value="white") +
+  theme_classic() +  theme(
+    text = element_text(size = 12),        # General text size
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    axis.text = element_text(size = 12),   # Axis text size
+    axis.title = element_text(size = 12),  # Axis title size
+    plot.title = element_text(size = 12),  # Plot title size
+    legend.text = element_text(size = 12), # Legend text size
+    legend.title = element_text(size = 12) # Legend title size
+  ) + guides(fill=guide_legend(
+    keywidth=0.1,
+    keyheight=0.1,
+    default.unit="inch")
+  ) + scale_x_discrete(guide = guide_axis(angle = 40)) 
+```
+
+```{r heat-mkt-viz, echo=FALSE, warning=FALSE}
+ggarrange( hm_path_mkt_com , hm_path_mkt_ind ,  hm_clin_mkt_com, hm_clin_mkt_ind, ncol=2, nrow=2,  labels = c("Bacteria", "Pathogens", "ARGs", "High-Risk ARGs"), 
+                    font.label = list(size = 10)) 
+
+```
