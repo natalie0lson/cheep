@@ -1,0 +1,28 @@
+--- 
+title: "Farm-to-Fork Changes in Poultry Microbiomes and Resistomes in Maputo, Mozambique"
+author: "Natalie Olson, MPH" 
+date: "`r Sys.Date()`"
+site: bookdown::bookdown_site
+documentclass: book
+bibliography: [book.bib, packages.bib]
+url: https://bookdown.org/natalie_olson/cheep
+cover-image: chickens.png
+biblio-style: apalike
+csl: chicago-fullnote-bibliography.csl
+---
+# Farm-to-Fork Changes in Poultry Microbiomes and Resistomes in Maputo, Mozambique {-}
+
+Natalie Olson^1^, Frederica Lamar^1^, Hermogenes Mucache^2^, José Fafetine^2^, Joaquim Saide^2^, Amelia Milisse^2^, Denise Brito^2^, Karen Levy^3^, Matthew Freeman^1^, Maya Nadimpalli^1^ 
+
+^1^Emory University, ^2^Eduardo Mondlane University, ^3^University of Washington
+
+
+![ ](chickens.png){width=100%}
+
+```{r include=FALSE}
+# automatically create a bib database for R packages
+knitr::write_bib(c(
+  .packages(), 'bookdown', 'knitr', 'rmarkdown'
+), 'packages.bib')
+```
+
